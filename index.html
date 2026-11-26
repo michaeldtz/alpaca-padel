@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Padel Americano — Alpaca Ranch</title>
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎾</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="brand">
+          <span class="brand-icon">🎾</span>
+          <div>
+            <h1>Padel Americano</h1>
+            <p class="subtitle">Ranch Match Court • Bis 15 Punkte</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button id="btnManagePlayers" class="btn-icon" title="Spieler verwalten" aria-label="Spieler verwalten">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </button>
+          <button id="btnResetTournament" class="btn-icon btn-danger-icon" title="Turnier neu starten" aria-label="Turnier neu starten">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs" role="tablist">
+        <button class="tab-btn active" role="tab" aria-selected="true" data-tab="tab-court">
+          <span>🎾 Aktives Match</span>
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" data-tab="tab-leaderboard">
+          <span>🏆 Highscore</span>
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" data-tab="tab-history">
+          <span>📋 Runden (<span id="roundsCountBadge">0</span>)</span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- TAB 1: COURT / ACTIVE MATCH -->
+      <section id="tab-court" class="tab-panel active">
+        <!-- Pausing / Buzz Banner -->
+        <div class="buzz-banner">
+          <div class="buzz-badge">☕ BUZZ / PAUSE</div>
+          <div class="buzz-player">
+            <span id="buzzPlayerName" class="buzz-name">-</span>
+            <span class="buzz-sub">setzt diese Runde aus</span>
+          </div>
+          <button id="btnSwapBuzz" class="btn-subtle btn-sm" title="Wer anders soll aussetzen?">Wechseln</button>
+        </div>
+
+        <!-- Current Match Card -->
+        <div class="court-card">
+          <div class="court-header">
+            <span class="round-badge" id="currentRoundTitle">Runde 1</span>
+            <span class="target-badge">Ziel: <strong id="targetPointsDisplay">15</strong> Pkt</span>
+          </div>
+
+          <!-- Team 1 -->
+          <div class="team-panel team-1">
+            <div class="team-meta">
+              <span class="team-tag">Team Blau</span>
+              <div class="team-players" id="team1Players">- & -</div>
+            </div>
+            <div class="score-input-wrap">
+              <button class="score-adjust-btn" id="t1Minus" aria-label="1 Punkt abziehen">-</button>
+              <div class="score-display" id="t1Score">0</div>
+              <button class="score-adjust-btn" id="t1Plus" aria-label="1 Punkt hinzufügen">+</button>
+            </div>
+            <div class="score-quick-actions">
+              <button class="btn-quick-score" data-team="1" data-score="15">⭐ 15 Gewonnen</button>
+            </div>
+          </div>
+
+          <div class="vs-divider">
+            <span>VS</span>
+          </div>
+
+          <!-- Team 2 -->
+          <div class="team-panel team-2">
+            <div class="team-meta">
+              <span class="team-tag">Team Gold</span>
+              <div class="team-players" id="team2Players">- & -</div>
+            </div>
+            <div class="score-input-wrap">
+              <button class="score-adjust-btn" id="t2Minus" aria-label="1 Punkt abziehen">-</button>
+              <div class="score-display" id="t2Score">0</div>
+              <button class="score-adjust-btn" id="t2Plus" aria-label="1 Punkt hinzufügen">+</button>
+            </div>
+            <div class="score-quick-actions">
+              <button class="btn-quick-score" data-team="2" data-score="15">⭐ 15 Gewonnen</button>
+            </div>
+          </div>
+
+          <!-- Quick Score Presets -->
+          <div class="presets-section">
+            <span class="presets-label">Schnellauswahl:</span>
+            <div class="preset-buttons">
+              <button class="preset-btn" data-t1="15" data-t2="13">15 : 13</button>
+              <button class="preset-btn" data-t1="15" data-t2="11">15 : 11</button>
+              <button class="preset-btn" data-t1="15" data-t2="9">15 : 9</button>
+              <button class="preset-btn" data-t1="15" data-t2="7">15 : 7</button>
+              <button class="preset-btn" data-t1="13" data-t2="15">13 : 15</button>
+              <button class="preset-btn" data-t1="11" data-t2="15">11 : 15</button>
+              <button class="preset-btn" data-t1="9" data-t2="15">9 : 15</button>
+              <button class="preset-btn" data-t1="7" data-t2="15">7 : 15</button>
+            </div>
+          </div>
+
+          <!-- Submit Round Action -->
+          <button id="btnFinishRound" class="btn-primary btn-large btn-glow">
+            <span>Runde werten & Weiter ➔</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- TAB 2: LEADERBOARD / HIGHSCORE -->
+      <section id="tab-leaderboard" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <h2>🏆 Gesamt-Tabelle</h2>
+            <span class="card-subtitle">Sortiert nach Punkten</span>
+          </div>
+          <div class="table-responsive">
+            <table class="highscore-table">
+              <thead>
+                <tr>
+                  <th class="th-rank">#</th>
+                  <th class="th-name">Spieler</th>
+                  <th class="th-num">Punkte</th>
+                  <th class="th-num">Spiele</th>
+                  <th class="th-num">W - L</th>
+                  <th class="th-num">Diff</th>
+                  <th class="th-num">Ø Pkt</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboardBody">
+                <!-- Dynamically rendered -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: ROUNDS HISTORY -->
+      <section id="tab-history" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <h2>📋 Gespielte Runden</h2>
+            <span class="card-subtitle" id="historySubtitle">0 Runden beendet</span>
+          </div>
+          <div id="historyList" class="history-list">
+            <div class="empty-state">Noch keine Matches gespielt. Starte Runde 1 auf dem Court!</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- DIALOG: SPIELER VERWALTEN -->
+  <dialog id="dlgPlayers" closedby="any" aria-labelledby="dlgPlayersTitle">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="dlgPlayersTitle">👥 Spieler konfigurieren</h2>
+        <button type="button" class="btn-close" id="btnCloseDlgPlayers" aria-label="Schließen">✕</button>
+      </div>
+      <p class="dialog-desc">Füge Spieler hinzu oder passe die Namen an (z. B. für nächste Runde oder andere Besetzung):</p>
+      
+      <div class="add-player-row">
+        <input type="text" id="newPlayerInput" placeholder="Neuer Spielername..." maxlength="20">
+        <button id="btnAddPlayer" class="btn-secondary">Hinzufügen</button>
+      </div>
+
+      <ul id="playersList" class="players-list">
+        <!-- Rendered by JS -->
+      </ul>
+
+      <div class="dialog-footer">
+        <button type="button" id="btnSavePlayers" class="btn-primary">Fertig</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG: BUZZ / PAUSIERENDEN WECHSELN -->
+  <dialog id="dlgSwapBuzz" closedby="any" aria-labelledby="dlgSwapBuzzTitle">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="dlgSwapBuzzTitle">☕ Pause / Buzz zuweisen</h2>
+        <button type="button" class="btn-close" id="btnCloseDlgBuzz" aria-label="Schließen">✕</button>
+      </div>
+      <p class="dialog-desc">Wer soll in dieser Runde aussetzen? Die 4 anderen spielen:</p>
+      <div id="swapBuzzOptions" class="swap-options-grid"></div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG: TURNIER RESET CONFIRMATION -->
+  <dialog id="dlgResetConfirm" closedby="any" aria-labelledby="dlgResetTitle">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="dlgResetTitle">⚠️ Turnier neu starten?</h2>
+        <button type="button" class="btn-close" id="btnCloseDlgReset" aria-label="Schließen">✕</button>
+      </div>
+      <p class="dialog-desc">Möchtest du alle bisherigen Runden und Punkte zurücksetzen und ein neues Turnier starten?</p>
+      <div class="dialog-footer flex-gap">
+        <button type="button" id="btnCancelReset" class="btn-secondary">Abbrechen</button>
+        <button type="button" id="btnConfirmReset" class="btn-danger">Ja, zurücksetzen</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG: RUNDE BEARBEITEN -->
+  <dialog id="dlgEditRound" closedby="any" aria-labelledby="dlgEditRoundTitle">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="dlgEditRoundTitle">✏️ Runde bearbeiten</h2>
+        <button type="button" class="btn-close" id="btnCloseDlgEditRound" aria-label="Schließen">✕</button>
+      </div>
+      <div id="editRoundBody" class="edit-round-body"></div>
+      <div class="dialog-footer flex-gap">
+        <button type="button" id="btnCancelEditRound" class="btn-secondary">Abbrechen</button>
+        <button type="button" id="btnSaveEditRound" class="btn-primary">Speichern</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
