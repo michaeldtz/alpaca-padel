@@ -6,14 +6,15 @@
 // Initial configuration
 const DEFAULT_PLAYERS = ['Simon', 'Tim', 'Adrian', 'Andre', 'Michael'];
 const STORAGE_KEY = 'alpaca_padel_v1';
-const TARGET_POINTS = 15;
+const TARGET_POINTS = 11;
 
 // Tournament State
 let state = {
   players: [...DEFAULT_PLAYERS],
   rounds: [], // { id, roundNum, buzzPlayer, team1: [p1, p2], team2: [p3, p4], score1: 0, score2: 0, timestamp }
   currentMatch: null, // { buzzPlayer, team1: [p1, p2], team2: [p3, p4], score1: 0, score2: 0 }
-  targetPoints: TARGET_POINTS
+  targetPoints: TARGET_POINTS,
+  migrated11: true
 };
 
 // Initialize App
@@ -36,6 +37,12 @@ function loadState() {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.players) && parsed.players.length >= 4) {
         state = parsed;
+        // Migration to 11 points requested by Michael (keeps all games/players intact)
+        if (!state.migrated11) {
+          state.targetPoints = 11;
+          state.migrated11 = true;
+          saveState();
+        }
       }
     }
   } catch (e) {
@@ -252,7 +259,20 @@ function renderAll() {
 function renderActiveMatch() {
   const roundNum = state.rounds.length + 1;
   document.getElementById('currentRoundTitle').textContent = `Runde ${roundNum}`;
-  document.getElementById('targetPointsDisplay').textContent = state.targetPoints;
+  
+  const brandTarget = document.getElementById('brandTargetDisplay');
+  if (brandTarget) brandTarget.textContent = state.targetPoints;
+
+  // Update target pill buttons active state
+  document.querySelectorAll('.target-pill-btn').forEach(btn => {
+    const pts = parseInt(btn.getAttribute('data-pts'), 10);
+    btn.classList.toggle('active', pts === state.targetPoints);
+  });
+
+  // Update target win button labels
+  document.querySelectorAll('.targetWinLabel').forEach(el => {
+    el.textContent = state.targetPoints;
+  });
 
   const match = state.currentMatch;
   if (!match) return;
@@ -267,6 +287,41 @@ function renderActiveMatch() {
   // Scores
   document.getElementById('t1Score').textContent = match.score1;
   document.getElementById('t2Score').textContent = match.score2;
+
+  renderPresets();
+}
+
+function renderPresets() {
+  const container = document.getElementById('presetButtonsContainer');
+  if (!container) return;
+
+  const N = state.targetPoints || 11;
+  let pairs = [];
+  if (N === 11) {
+    pairs = [[11, 9], [11, 8], [11, 7], [11, 5], [9, 11], [8, 11], [7, 11], [5, 11]];
+  } else if (N === 15) {
+    pairs = [[15, 13], [15, 11], [15, 9], [15, 7], [13, 15], [11, 15], [9, 15], [7, 15]];
+  } else if (N === 21) {
+    pairs = [[21, 19], [21, 17], [21, 15], [21, 12], [19, 21], [17, 21], [15, 21], [12, 21]];
+  } else {
+    pairs = [[N, N - 2], [N, N - 3], [N, N - 5], [N - 2, N], [N - 3, N], [N - 5, N]];
+  }
+
+  container.innerHTML = '';
+  pairs.forEach(([t1, t2]) => {
+    const btn = document.createElement('button');
+    btn.className = 'preset-btn';
+    btn.textContent = `${t1} : ${t2}`;
+    btn.addEventListener('click', () => {
+      if (state.currentMatch) {
+        state.currentMatch.score1 = t1;
+        state.currentMatch.score2 = t2;
+        renderActiveMatch();
+        saveState();
+      }
+    });
+    container.appendChild(btn);
+  });
 }
 
 function renderLeaderboard() {
@@ -402,7 +457,19 @@ function setupEventListeners() {
     }
   });
 
-  // Quick 15 win buttons
+  // Target points switcher (11 / 15 / 21)
+  document.querySelectorAll('.target-pill-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pts = parseInt(btn.getAttribute('data-pts'), 10);
+      if (pts) {
+        state.targetPoints = pts;
+        saveState();
+        renderActiveMatch();
+      }
+    });
+  });
+
+  // Quick win buttons
   document.querySelectorAll('.btn-quick-score').forEach(btn => {
     btn.addEventListener('click', () => {
       const team = btn.getAttribute('data-team');
@@ -411,18 +478,6 @@ function setupEventListeners() {
       } else {
         state.currentMatch.score2 = state.targetPoints;
       }
-      renderActiveMatch();
-      saveState();
-    });
-  });
-
-  // Preset score buttons (15:13, etc.)
-  document.querySelectorAll('.preset-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const t1 = parseInt(btn.getAttribute('data-t1'), 10);
-      const t2 = parseInt(btn.getAttribute('data-t2'), 10);
-      state.currentMatch.score1 = t1;
-      state.currentMatch.score2 = t2;
       renderActiveMatch();
       saveState();
     });

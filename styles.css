@@ -226,6 +226,40 @@ body {
   letter-spacing: 0.02em;
 }
 
+.target-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-secondary);
+  padding: 3px 6px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.target-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.target-pill-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.target-pill-btn.active {
+  background: var(--accent-neon);
+  color: var(--text-dark);
+}
+
 .target-badge {
   font-size: 0.8rem;
   color: var(--text-muted);

@@ -19,7 +19,7 @@
           <span class="brand-icon">🎾</span>
           <div>
             <h1>Padel Americano</h1>
-            <p class="subtitle">Ranch Match Court • Bis 15 Punkte</p>
+            <p class="subtitle">Ranch Match Court • Bis <span id="brandTargetDisplay">11</span> Punkte</p>
           </div>
         </div>
         <div class="header-actions">
@@ -64,7 +64,12 @@
         <div class="court-card">
           <div class="court-header">
             <span class="round-badge" id="currentRoundTitle">Runde 1</span>
-            <span class="target-badge">Ziel: <strong id="targetPointsDisplay">15</strong> Pkt</span>
+            <div class="target-selector" role="group" aria-label="Zielpunkte wählen">
+              <span class="target-label">Ziel:</span>
+              <button type="button" class="target-pill-btn active" data-pts="11">11</button>
+              <button type="button" class="target-pill-btn" data-pts="15">15</button>
+              <button type="button" class="target-pill-btn" data-pts="21">21</button>
+            </div>
           </div>
 
           <!-- Team 1 -->
@@ -79,7 +84,7 @@
               <button class="score-adjust-btn" id="t1Plus" aria-label="1 Punkt hinzufügen">+</button>
             </div>
             <div class="score-quick-actions">
-              <button class="btn-quick-score" data-team="1" data-score="15">⭐ 15 Gewonnen</button>
+              <button class="btn-quick-score" id="btnT1Win" data-team="1">⭐ <span class="targetWinLabel">11</span> Gewonnen</button>
             </div>
           </div>
 
@@ -99,22 +104,15 @@
               <button class="score-adjust-btn" id="t2Plus" aria-label="1 Punkt hinzufügen">+</button>
             </div>
             <div class="score-quick-actions">
-              <button class="btn-quick-score" data-team="2" data-score="15">⭐ 15 Gewonnen</button>
+              <button class="btn-quick-score" id="btnT2Win" data-team="2">⭐ <span class="targetWinLabel">11</span> Gewonnen</button>
             </div>
           </div>
 
           <!-- Quick Score Presets -->
           <div class="presets-section">
             <span class="presets-label">Schnellauswahl:</span>
-            <div class="preset-buttons">
-              <button class="preset-btn" data-t1="15" data-t2="13">15 : 13</button>
-              <button class="preset-btn" data-t1="15" data-t2="11">15 : 11</button>
-              <button class="preset-btn" data-t1="15" data-t2="9">15 : 9</button>
-              <button class="preset-btn" data-t1="15" data-t2="7">15 : 7</button>
-              <button class="preset-btn" data-t1="13" data-t2="15">13 : 15</button>
-              <button class="preset-btn" data-t1="11" data-t2="15">11 : 15</button>
-              <button class="preset-btn" data-t1="9" data-t2="15">9 : 15</button>
-              <button class="preset-btn" data-t1="7" data-t2="15">7 : 15</button>
+            <div class="preset-buttons" id="presetButtonsContainer">
+              <!-- Dynamically populated by JS based on target points -->
             </div>
           </div>
 
