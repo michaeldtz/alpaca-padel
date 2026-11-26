@@ -23,6 +23,7 @@ let selectedSwapSlot = null;
 // Initialize App
 function initApp() {
   loadState();
+  maybeLoadUrlPreset();
   if (!state.currentMatch) {
     state.currentMatch = generateNextMatch();
     saveState();
@@ -30,6 +31,28 @@ function initApp() {
   setupDialogs();
   setupEventListeners();
   renderAll();
+}
+
+function maybeLoadUrlPreset() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('load') !== 'r7') return;
+
+  const now = new Date().toISOString();
+  state.players = ['Simon', 'Tim', 'Adrian', 'Andre', 'Michael'];
+  state.targetPoints = 11;
+  state.migrated11 = true;
+  state.rounds = [
+    { id: 'round_1', roundNum: 1, buzzPlayer: 'Simon',   team1: ['Adrian', 'Tim'],    team2: ['Michael', 'Andre'], score1: 11, score2: 9, timestamp: now },
+    { id: 'round_2', roundNum: 2, buzzPlayer: 'Tim',     team1: ['Adrian', 'Michael'], team2: ['Andre', 'Simon'],  score1: 11, score2: 5, timestamp: now },
+    { id: 'round_3', roundNum: 3, buzzPlayer: 'Michael', team1: ['Adrian', 'Andre'],  team2: ['Tim', 'Simon'],    score1: 11, score2: 6, timestamp: now },
+    { id: 'round_4', roundNum: 4, buzzPlayer: 'Adrian',  team1: ['Michael', 'Simon'], team2: ['Tim', 'Andre'],    score1: 11, score2: 5, timestamp: now },
+    { id: 'round_5', roundNum: 5, buzzPlayer: 'Andre',   team1: ['Michael', 'Tim'],   team2: ['Adrian', 'Simon'], score1: 11, score2: 6, timestamp: now },
+    { id: 'round_6', roundNum: 6, buzzPlayer: 'Simon',   team1: ['Adrian', 'Tim'],    team2: ['Michael', 'Andre'], score1: 11, score2: 8, timestamp: now },
+    { id: 'round_7', roundNum: 7, buzzPlayer: 'Tim',     team1: ['Adrian', 'Michael'], team2: ['Andre', 'Simon'],  score1: 11, score2: 6, timestamp: now }
+  ];
+  state.currentMatch = generateNextMatch();
+  saveState();
+  window.history.replaceState({}, '', window.location.pathname);
 }
 
 // Storage helpers
@@ -67,6 +90,22 @@ function saveState() {
 function generateNextMatch(customBuzz = null) {
   const players = state.players;
   if (players.length < 4) return null;
+
+  // Repeat exact 5-round cycle when 5 players are active and >= 5 rounds were played
+  if (!customBuzz && players.length === 5 && state.rounds.length >= 5) {
+    const template = state.rounds[state.rounds.length - 5];
+    const templatePlayers = [template.buzzPlayer, ...template.team1, ...template.team2];
+    const allStillPresent = templatePlayers.length === 5 && templatePlayers.every(p => players.includes(p));
+    if (allStillPresent) {
+      return {
+        buzzPlayer: template.buzzPlayer,
+        team1: [...template.team1],
+        team2: [...template.team2],
+        score1: 0,
+        score2: 0
+      };
+    }
+  }
 
   // 1. Determine who rests (Buzz)
   let buzzPlayer = customBuzz;
