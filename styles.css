@@ -312,6 +312,54 @@ body {
   font-weight: 700;
   color: #fff;
   text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.team-amp {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.player-swap-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.player-swap-btn:active {
+  transform: scale(0.96);
+}
+
+.player-swap-btn.swap-selected {
+  background: rgba(163, 230, 53, 0.18);
+  border: 1.5px solid var(--accent-neon);
+  color: var(--accent-neon);
+  box-shadow: 0 0 0 3px rgba(163, 230, 53, 0.15);
+}
+
+.swap-hint-bar {
+  background: rgba(163, 230, 53, 0.12);
+  border: 1px solid rgba(163, 230, 53, 0.4);
+  color: var(--accent-neon);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
 }
 
 /* Score input wrap */

@@ -17,6 +17,9 @@ let state = {
   migrated11: true
 };
 
+// Active 2-tap player swap selection: { group: 'team1' | 'team2' | 'buzz', index: number } | null
+let selectedSwapSlot = null;
+
 // Initialize App
 function initApp() {
   loadState();
@@ -283,14 +286,26 @@ function renderActiveMatch() {
 
   // Buzz / Pause
   const buzzEl = document.getElementById('buzzPlayerName');
-  if (buzzEl) buzzEl.textContent = match.buzzPlayer || 'Keiner';
+  if (buzzEl) {
+    buzzEl.textContent = match.buzzPlayer || 'Keiner';
+    buzzEl.classList.toggle('swap-selected', selectedSwapSlot?.group === 'buzz');
+  }
 
-  // Team players
-  const t1Players = document.getElementById('team1Players');
-  if (t1Players) t1Players.textContent = match.team1.join(' & ');
+  // Team players (clickable to swap)
+  renderTeamPlayers('team1Players', 'team1', match.team1);
+  renderTeamPlayers('team2Players', 'team2', match.team2);
 
-  const t2Players = document.getElementById('team2Players');
-  if (t2Players) t2Players.textContent = match.team2.join(' & ');
+  // Swap hint banner
+  const hintBar = document.getElementById('swapHintBar');
+  if (hintBar) {
+    if (selectedSwapSlot) {
+      const selectedName = getSwapSlotName(match, selectedSwapSlot);
+      hintBar.textContent = `🔄 ${selectedName} ausgewählt — tippe auf einen anderen Namen zum Tauschen`;
+      hintBar.hidden = false;
+    } else {
+      hintBar.hidden = true;
+    }
+  }
 
   // Scores
   const t1Score = document.getElementById('t1Score');
@@ -300,6 +315,76 @@ function renderActiveMatch() {
   if (t2Score) t2Score.textContent = match.score2;
 
   renderPresets();
+}
+
+function renderTeamPlayers(elementId, group, players) {
+  const container = document.getElementById(elementId);
+  if (!container) return;
+
+  container.innerHTML = '';
+  players.forEach((name, idx) => {
+    if (idx > 0) {
+      const amp = document.createElement('span');
+      amp.className = 'team-amp';
+      amp.textContent = '&';
+      container.appendChild(amp);
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'player-swap-btn';
+    if (selectedSwapSlot && selectedSwapSlot.group === group && selectedSwapSlot.index === idx) {
+      btn.classList.add('swap-selected');
+    }
+    btn.textContent = name;
+    btn.title = 'Antippen zum Tauschen';
+    btn.addEventListener('click', () => handlePlayerSwapClick(group, idx));
+    container.appendChild(btn);
+  });
+}
+
+function getSwapSlotName(match, slot) {
+  if (!match || !slot) return '';
+  if (slot.group === 'buzz') return match.buzzPlayer || '';
+  return match[slot.group]?.[slot.index] || '';
+}
+
+function setSwapSlotName(match, slot, name) {
+  if (!match || !slot) return;
+  if (slot.group === 'buzz') {
+    match.buzzPlayer = name;
+  } else if (match[slot.group]) {
+    match[slot.group][slot.index] = name;
+  }
+}
+
+function handlePlayerSwapClick(group, index) {
+  const match = state.currentMatch;
+  if (!match) return;
+
+  if (!selectedSwapSlot) {
+    selectedSwapSlot = { group, index };
+    renderActiveMatch();
+    return;
+  }
+
+  if (selectedSwapSlot.group === group && selectedSwapSlot.index === index) {
+    selectedSwapSlot = null;
+    renderActiveMatch();
+    return;
+  }
+
+  const targetSlot = { group, index };
+  const firstName = getSwapSlotName(match, selectedSwapSlot);
+  const secondName = getSwapSlotName(match, targetSlot);
+
+  if (firstName && secondName) {
+    setSwapSlotName(match, selectedSwapSlot, secondName);
+    setSwapSlotName(match, targetSlot, firstName);
+    saveState();
+  }
+
+  selectedSwapSlot = null;
+  renderActiveMatch();
 }
 
 function renderPresets() {
@@ -517,6 +602,7 @@ function setupEventListeners() {
 
     state.rounds.push(roundData);
     // Generate next round automatically
+    selectedSwapSlot = null;
     state.currentMatch = generateNextMatch();
     saveState();
     renderAll();
@@ -527,8 +613,9 @@ function setupEventListeners() {
     }
   });
 
-  // Swap Buzz Dialog trigger
+  // Swap Buzz Dialog trigger & Buzz player name tap-to-swap
   document.getElementById('btnSwapBuzz').addEventListener('click', openSwapBuzzDialog);
+  document.getElementById('buzzPlayerName').addEventListener('click', () => handlePlayerSwapClick('buzz', 0));
 
   // Manage Players Dialog
   document.getElementById('btnManagePlayers').addEventListener('click', openManagePlayersDialog);
@@ -543,6 +630,7 @@ function setupEventListeners() {
   });
   document.getElementById('btnConfirmReset').addEventListener('click', () => {
     state.rounds = [];
+    selectedSwapSlot = null;
     state.currentMatch = generateNextMatch();
     saveState();
     renderAll();
@@ -657,6 +745,7 @@ function openSwapBuzzDialog() {
       <span style="font-size: 0.8rem; color: var(--text-muted);">${isCurrent ? 'Aktiv pausierend' : 'Jetzt Pause'}</span>
     `;
     btn.addEventListener('click', () => {
+      selectedSwapSlot = null;
       state.currentMatch = generateNextMatch(p);
       saveState();
       renderActiveMatch();
