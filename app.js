@@ -258,10 +258,14 @@ function renderAll() {
 
 function renderActiveMatch() {
   const roundNum = state.rounds.length + 1;
-  document.getElementById('currentRoundTitle').textContent = `Runde ${roundNum}`;
+  const roundTitle = document.getElementById('currentRoundTitle');
+  if (roundTitle) roundTitle.textContent = `Runde ${roundNum}`;
   
   const brandTarget = document.getElementById('brandTargetDisplay');
   if (brandTarget) brandTarget.textContent = state.targetPoints;
+
+  const targetDisplay = document.getElementById('targetPointsDisplay');
+  if (targetDisplay) targetDisplay.textContent = state.targetPoints;
 
   // Update target pill buttons active state
   document.querySelectorAll('.target-pill-btn').forEach(btn => {
@@ -278,15 +282,22 @@ function renderActiveMatch() {
   if (!match) return;
 
   // Buzz / Pause
-  document.getElementById('buzzPlayerName').textContent = match.buzzPlayer || 'Keiner';
+  const buzzEl = document.getElementById('buzzPlayerName');
+  if (buzzEl) buzzEl.textContent = match.buzzPlayer || 'Keiner';
 
   // Team players
-  document.getElementById('team1Players').textContent = match.team1.join(' & ');
-  document.getElementById('team2Players').textContent = match.team2.join(' & ');
+  const t1Players = document.getElementById('team1Players');
+  if (t1Players) t1Players.textContent = match.team1.join(' & ');
+
+  const t2Players = document.getElementById('team2Players');
+  if (t2Players) t2Players.textContent = match.team2.join(' & ');
 
   // Scores
-  document.getElementById('t1Score').textContent = match.score1;
-  document.getElementById('t2Score').textContent = match.score2;
+  const t1Score = document.getElementById('t1Score');
+  if (t1Score) t1Score.textContent = match.score1;
+
+  const t2Score = document.getElementById('t2Score');
+  if (t2Score) t2Score.textContent = match.score2;
 
   renderPresets();
 }
@@ -728,4 +739,8 @@ function escapeHtml(str) {
 }
 
 // Start
-document.addEventListener('DOMContentLoaded', initApp);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
