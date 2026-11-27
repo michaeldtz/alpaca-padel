@@ -1034,3 +1034,18 @@ dialog::backdrop {
   border-color: var(--accent-neon);
   color: var(--accent-neon);
 }
+
+.btn-sm-pill {
+  width: auto;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  border-radius: 16px;
+}
+
+.home-view .sessions-list {
+  max-height: none;
+}
+
+[hidden] {
+  display: none !important;
+}

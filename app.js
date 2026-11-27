@@ -53,6 +53,28 @@ function applySessionData(session) {
   localStorage.setItem(ACTIVE_SESSION_KEY, state.id);
 }
 
+function showHomeView() {
+  document.getElementById('view-home').hidden = false;
+  document.getElementById('view-game').hidden = true;
+  document.getElementById('gameNavTabs').hidden = true;
+  document.getElementById('gameHeaderActions').hidden = true;
+  const sub = document.getElementById('headerSubtitle');
+  if (sub) sub.textContent = 'Spieltage & Runden verwalten';
+  renderHomeView();
+}
+
+function showGameView() {
+  document.getElementById('view-home').hidden = true;
+  document.getElementById('view-game').hidden = false;
+  document.getElementById('gameNavTabs').hidden = false;
+  document.getElementById('gameHeaderActions').hidden = false;
+  const sub = document.getElementById('headerSubtitle');
+  if (sub) {
+    sub.innerHTML = `Ranch Match Court • Bis <span id="brandTargetDisplay">${state.targetPoints}</span> Punkte`;
+  }
+  renderAll();
+}
+
 async function initApp() {
   setupDialogs();
   setupEventListeners();
@@ -60,48 +82,25 @@ async function initApp() {
   try {
     const params = new URLSearchParams(window.location.search);
     const urlSessionId = params.get('session');
-    const savedSessionId = localStorage.getItem(ACTIVE_SESSION_KEY);
 
-    const listData = await apiFetch('/api/sessions');
-    sessionsList = listData.sessions || [];
+    await refreshSessionsAndOverall();
 
-    let targetId = urlSessionId || savedSessionId;
-    if (targetId && !sessionsList.some(s => s.id === targetId)) {
-      targetId = null;
-    }
-    if (!targetId && sessionsList.length > 0) {
-      targetId = sessionsList[0].id;
-    }
-
-    if (targetId) {
-      const data = await apiFetch(`/api/sessions/${encodeURIComponent(targetId)}`);
+    if (urlSessionId && sessionsList.some(s => s.id === urlSessionId)) {
+      const data = await apiFetch(`/api/sessions/${encodeURIComponent(urlSessionId)}`);
       applySessionData(data.session);
-      if (urlSessionId) {
-        window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, '', window.location.pathname);
+      if (!state.currentMatch && state.players.length >= 4) {
+        state.currentMatch = generateNextMatch();
+        await persistSessionFields({ current_match: state.currentMatch });
       }
-    } else {
-      const created = await apiFetch('/api/sessions', {
-        method: 'POST',
-        body: JSON.stringify({
-          played_date: new Date().toISOString().slice(0, 10),
-          location: 'Padel Court',
-          players: ['Simon', 'Tim', 'Adrian', 'Andre', 'Michael'],
-          target_points: 11
-        })
-      });
-      applySessionData(created.session);
-      sessionsList = (await apiFetch('/api/sessions')).sessions || [];
-    }
-
-    if (!state.currentMatch && state.players.length >= 4) {
-      state.currentMatch = generateNextMatch();
-      await persistSessionFields({ current_match: state.currentMatch });
+      showGameView();
+      return;
     }
   } catch (err) {
-    console.error('Failed to load session from API:', err);
+    console.error('Failed to initialize app:', err);
   }
 
-  renderAll();
+  showHomeView();
 }
 
 async function persistSessionFields(fields) {
@@ -355,6 +354,12 @@ function renderActiveMatch() {
   const match = state.currentMatch;
   if (!match) return;
 
+  const buzzBanner = document.getElementById('buzzBanner');
+  const hasBuzz = state.players.length > 4 && Boolean(match.buzzPlayer);
+  if (buzzBanner) {
+    buzzBanner.hidden = !hasBuzz;
+  }
+
   const buzzEl = document.getElementById('buzzPlayerName');
   if (buzzEl) {
     buzzEl.textContent = match.buzzPlayer || 'Keiner';
@@ -505,36 +510,7 @@ function renderLeaderboard() {
     if (subEl) subEl.textContent = `${formatDateDE(state.played_date)} • ${state.location || 'Padel'}`;
   }
 
-  tbody.innerHTML = '';
-  lb.forEach((item, index) => {
-    const tr = document.createElement('tr');
-
-    let rankDisplay = `${index + 1}.`;
-    let rankClass = '';
-    if (index === 0) { rankDisplay = '🥇 1'; rankClass = 'rank-gold'; }
-    else if (index === 1) { rankDisplay = '🥈 2'; rankClass = 'rank-silver'; }
-    else if (index === 2) { rankDisplay = '🥉 3'; rankClass = 'rank-bronze'; }
-
-    let diffClass = 'diff-zero';
-    let diffDisplay = `${item.diff}`;
-    if (item.diff > 0) {
-      diffClass = 'diff-pos';
-      diffDisplay = `+${item.diff}`;
-    } else if (item.diff < 0) {
-      diffClass = 'diff-neg';
-    }
-
-    tr.innerHTML = `
-      <td class="td-rank ${rankClass}">${rankDisplay}</td>
-      <td class="td-name">${escapeHtml(item.name)}</td>
-      <td class="td-points">${item.points}</td>
-      <td class="td-num">${item.played}</td>
-      <td class="td-num">${item.wins}-${item.losses}</td>
-      <td class="td-diff ${diffClass}">${diffDisplay}</td>
-      <td class="td-num">${item.avg}</td>
-    `;
-    tbody.appendChild(tr);
-  });
+  renderLeaderboardRows(tbody, lb);
 }
 
 function renderHistory() {
@@ -560,9 +536,10 @@ function renderHistory() {
     const t1Winner = round.score1 > round.score2;
     const t2Winner = round.score2 > round.score1;
 
+    const pauseLabel = round.buzzPlayer ? ` • Pause: ${escapeHtml(round.buzzPlayer)}` : '';
     item.innerHTML = `
       <div class="history-main">
-        <div class="history-round-tag">Runde ${round.roundNum} • Pause: ${escapeHtml(round.buzzPlayer)}</div>
+        <div class="history-round-tag">Runde ${round.roundNum}${pauseLabel}</div>
         <div class="history-matchup">
           <span style="${t1Winner ? 'color: var(--accent-blue); font-weight: 700;' : ''}">${escapeHtml(round.team1.join(' & '))}</span>
           <span style="color: var(--text-muted); margin: 0 4px;">vs</span>
@@ -727,8 +704,13 @@ function setupEventListeners() {
   });
 
   // Sessions & New Game
+  document.getElementById('btnBackToHome').addEventListener('click', async () => {
+    selectedSwapSlot = null;
+    await refreshSessionsAndOverall();
+    showHomeView();
+  });
+  document.getElementById('btnHomeNewSession').addEventListener('click', openNewSessionDialog);
   document.getElementById('btnOpenSessions').addEventListener('click', openSessionsDialog);
-  document.getElementById('btnNewSessionQuick').addEventListener('click', openNewSessionDialog);
   document.getElementById('btnOpenNewSessionFromList').addEventListener('click', () => {
     document.getElementById('dlgSessions').close();
     openNewSessionDialog();
@@ -788,50 +770,112 @@ function setupDialogs() {
   }
 }
 
-// Sessions Management Dialog
-async function openSessionsDialog() {
-  await refreshSessionsAndOverall();
-  const container = document.getElementById('sessionsList');
+function renderHomeView() {
+  renderSessionsListInto(document.getElementById('homeSessionsList'), false);
+
+  const subEl = document.getElementById('homeOverallSubtitle');
+  const tbody = document.getElementById('homeOverallBody');
+  if (overallStats) {
+    if (subEl) subEl.textContent = `${overallStats.sessionsCount} Spieltage • ${overallStats.roundsCount} Runden`;
+    if (tbody) renderLeaderboardRows(tbody, overallStats.leaderboard || []);
+  } else if (tbody) {
+    tbody.innerHTML = '';
+  }
+}
+
+function renderLeaderboardRows(tbody, lb) {
+  tbody.innerHTML = '';
+  lb.forEach((item, index) => {
+    const tr = document.createElement('tr');
+    let rankDisplay = `${index + 1}.`;
+    let rankClass = '';
+    if (index === 0) { rankDisplay = '🥇 1'; rankClass = 'rank-gold'; }
+    else if (index === 1) { rankDisplay = '🥈 2'; rankClass = 'rank-silver'; }
+    else if (index === 2) { rankDisplay = '🥉 3'; rankClass = 'rank-bronze'; }
+
+    let diffClass = 'diff-zero';
+    let diffDisplay = `${item.diff}`;
+    if (item.diff > 0) {
+      diffClass = 'diff-pos';
+      diffDisplay = `+${item.diff}`;
+    } else if (item.diff < 0) {
+      diffClass = 'diff-neg';
+    }
+
+    tr.innerHTML = `
+      <td class="td-rank ${rankClass}">${rankDisplay}</td>
+      <td class="td-name">${escapeHtml(item.name)}</td>
+      <td class="td-points">${item.points}</td>
+      <td class="td-num">${item.played}</td>
+      <td class="td-num">${item.wins}-${item.losses}</td>
+      <td class="td-diff ${diffClass}">${diffDisplay}</td>
+      <td class="td-num">${item.avg}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderSessionsListInto(container, fromDialog) {
+  if (!container) return;
   container.innerHTML = '';
 
   if (sessionsList.length === 0) {
-    container.innerHTML = '<div class="empty-state">Noch keine Spieltage gespeichert.</div>';
-  } else {
-    sessionsList.forEach(s => {
-      const item = document.createElement('div');
-      item.className = `session-item ${s.id === state.id ? 'active' : ''}`;
-      const title = s.title ? `${escapeHtml(s.title)} • ` : '';
-      item.innerHTML = `
-        <div class="session-item-main">
-          <div class="session-item-title">${title}${formatDateDE(s.played_date)} — ${escapeHtml(s.location || 'Ohne Ort')}</div>
-          <div class="session-item-meta">${s.roundCount} Runden • ${escapeHtml((s.players || []).join(', '))}</div>
-        </div>
-        ${sessionsList.length > 1 ? `<button type="button" class="btn-subtle btn-sm" style="color: var(--danger);" data-del-id="${s.id}" title="Spieltag löschen">🗑️</button>` : ''}
-      `;
-      item.querySelector('.session-item-main').addEventListener('click', async () => {
-        selectedSwapSlot = null;
-        const data = await apiFetch(`/api/sessions/${encodeURIComponent(s.id)}`);
-        applySessionData(data.session);
-        renderAll();
-        document.getElementById('dlgSessions').close();
-      });
-      const delBtn = item.querySelector('[data-del-id]');
-      if (delBtn) {
-        delBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          if (!confirm(`Spieltag ${formatDateDE(s.played_date)} wirklich löschen?`)) return;
-          await apiFetch(`/api/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
-          if (s.id === state.id) {
-            localStorage.removeItem(ACTIVE_SESSION_KEY);
-            await initApp();
-          }
-          await openSessionsDialog();
-        });
-      }
-      container.appendChild(item);
-    });
+    container.innerHTML = '<div class="empty-state">Noch keine Spieltage gespeichert. Starte ein neues Spiel!</div>';
+    return;
   }
 
+  sessionsList.forEach(s => {
+    const item = document.createElement('div');
+    item.className = `session-item ${s.id === state.id && !document.getElementById('view-home').hidden === false ? 'active' : ''}`;
+    const title = s.title ? `${escapeHtml(s.title)} • ` : '';
+    item.innerHTML = `
+      <div class="session-item-main">
+        <div class="session-item-title">${title}${formatDateDE(s.played_date)} — ${escapeHtml(s.location || 'Ohne Ort')}</div>
+        <div class="session-item-meta">${s.roundCount} Runden • ${escapeHtml((s.players || []).join(', '))}</div>
+      </div>
+      <button type="button" class="btn-subtle btn-sm" style="color: var(--danger);" data-del-id="${s.id}" title="Spieltag löschen">🗑️</button>
+    `;
+    item.querySelector('.session-item-main').addEventListener('click', async () => {
+      selectedSwapSlot = null;
+      const data = await apiFetch(`/api/sessions/${encodeURIComponent(s.id)}`);
+      applySessionData(data.session);
+      if (!state.currentMatch && state.players.length >= 4) {
+        state.currentMatch = generateNextMatch();
+        await persistSessionFields({ current_match: state.currentMatch });
+      }
+      if (fromDialog) document.getElementById('dlgSessions').close();
+      showGameView();
+    });
+    const delBtn = item.querySelector('[data-del-id]');
+    if (delBtn) {
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Spieltag ${formatDateDE(s.played_date)} wirklich löschen?`)) return;
+        await apiFetch(`/api/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+        if (s.id === state.id) {
+          state.id = null;
+          localStorage.removeItem(ACTIVE_SESSION_KEY);
+        }
+        await refreshSessionsAndOverall();
+        if (fromDialog) {
+          renderSessionsListInto(container, true);
+          if (!state.id) {
+            document.getElementById('dlgSessions').close();
+            showHomeView();
+          }
+        } else {
+          renderHomeView();
+        }
+      });
+    }
+    container.appendChild(item);
+  });
+}
+
+// Sessions Management Dialog
+async function openSessionsDialog() {
+  await refreshSessionsAndOverall();
+  renderSessionsListInto(document.getElementById('sessionsList'), true);
   document.getElementById('dlgSessions').showModal();
 }
 
@@ -918,9 +962,9 @@ async function handleCreateNewSession(e) {
       body: JSON.stringify({ played_date, location, title, target_points, players })
     });
     applySessionData(data.session);
-    sessionsList = (await apiFetch('/api/sessions')).sessions || [];
-    renderAll();
+    await refreshSessionsAndOverall();
     document.getElementById('dlgNewSession').close();
+    showGameView();
   } catch (err) {
     alert('Fehler beim Erstellen des Spiels: ' + err.message);
   }
