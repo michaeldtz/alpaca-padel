@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎾</text></svg>">
-  <link rel="stylesheet" href="styles.css?v=1.4">
+  <link rel="stylesheet" href="styles.css?v=2.0">
 </head>
 <body>
   <div class="app-container">
@@ -48,6 +48,19 @@
 
     <!-- Main Content -->
     <main class="main-content">
+      <!-- Active Game / Session Bar -->
+      <div class="session-bar">
+        <button type="button" id="btnOpenSessions" class="session-bar-info" title="Spieltage verwalten & wechseln">
+          <span id="sessionDateBadge">📅 --.--.----</span>
+          <span class="session-sep">•</span>
+          <span id="sessionLocationBadge">📍 Ort</span>
+          <span class="session-sep">•</span>
+          <span id="sessionPlayersBadge">👥 5</span>
+          <span class="session-chevron">▾</span>
+        </button>
+        <button type="button" id="btnNewSessionQuick" class="btn-subtle btn-sm">+ Neues Spiel</button>
+      </div>
+
       <!-- TAB 1: COURT / ACTIVE MATCH -->
       <section id="tab-court" class="tab-panel active">
         <!-- Pausing / Buzz Banner -->
@@ -131,8 +144,14 @@
       <section id="tab-leaderboard" class="tab-panel">
         <div class="card">
           <div class="card-header">
-            <h2>🏆 Gesamt-Tabelle</h2>
-            <span class="card-subtitle">Sortiert nach Punkten</span>
+            <div>
+              <h2 id="leaderboardTitle">🏆 Spieltag-Tabelle</h2>
+              <span class="card-subtitle" id="leaderboardSubtitle">Sortiert nach Punkten</span>
+            </div>
+            <div class="lb-scope-toggle" role="group" aria-label="Tabellen-Ansicht">
+              <button type="button" class="lb-scope-btn active" data-scope="session">Spieltag</button>
+              <button type="button" class="lb-scope-btn" data-scope="overall">Gesamt</button>
+            </div>
           </div>
           <div class="table-responsive">
             <table class="highscore-table">
@@ -236,6 +255,70 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=1.4"></script>
+  <!-- DIALOG: SPIELTAGE VERWALTEN -->
+  <dialog id="dlgSessions" closedby="any" aria-labelledby="dlgSessionsTitle">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="dlgSessionsTitle">📅 Spieltage / Games</h2>
+        <button type="button" class="btn-close" id="btnCloseDlgSessions" aria-label="Schließen">✕</button>
+      </div>
+      <p class="dialog-desc">Wähle einen gespeicherten Spieltag oder starte ein neues Spiel:</p>
+      <button type="button" id="btnOpenNewSessionFromList" class="btn-primary" style="margin-bottom: 12px;">+ Neues Spiel anlegen</button>
+      <div id="sessionsList" class="sessions-list"></div>
+    </div>
+  </dialog>
+
+  <!-- DIALOG: NEUES SPIEL ANLEGEN -->
+  <dialog id="dlgNewSession" closedby="any" aria-labelledby="dlgNewSessionTitle">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h2 id="dlgNewSessionTitle">🎾 Neues Spiel anlegen</h2>
+        <button type="button" class="btn-close" id="btnCloseDlgNewSession" aria-label="Schließen">✕</button>
+      </div>
+      <form id="newSessionForm" class="new-session-form">
+        <div class="form-row-2">
+          <label class="form-field">
+            <span>Datum</span>
+            <input type="date" id="newSessionDate" required>
+          </label>
+          <label class="form-field">
+            <span>Zielpunkte</span>
+            <select id="newSessionTarget">
+              <option value="11" selected>11 Punkte</option>
+              <option value="15">15 Punkte</option>
+              <option value="21">21 Punkte</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="form-field">
+          <span>Ort / Anlage</span>
+          <input type="text" id="newSessionLocation" placeholder="z. B. Padel Club Alzey" maxlength="60">
+        </label>
+        <div id="knownLocationsChips" class="chips-row"></div>
+
+        <label class="form-field">
+          <span>Bezeichnung (optional)</span>
+          <input type="text" id="newSessionTitle" placeholder="z. B. Donnerstagsrunde" maxlength="50">
+        </label>
+
+        <div class="form-field">
+          <span>Mitspieler auswählen (mind. 4)</span>
+          <div id="newSessionPlayersChips" class="player-select-grid"></div>
+          <div class="add-player-row" style="margin-top: 8px; margin-bottom: 0;">
+            <input type="text" id="newSessionCustomPlayer" placeholder="Weiteren Spieler hinzufügen..." maxlength="20">
+            <button type="button" id="btnAddCustomSessionPlayer" class="btn-secondary">+</button>
+          </div>
+        </div>
+
+        <div class="dialog-footer flex-gap">
+          <button type="button" id="btnCancelNewSession" class="btn-secondary">Abbrechen</button>
+          <button type="submit" class="btn-primary">Spiel starten</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script src="app.js?v=2.0"></script>
 </body>
 </html>

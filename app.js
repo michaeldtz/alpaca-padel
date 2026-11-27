@@ -1,102 +1,146 @@
 /**
- * Padel Americano - Ranch Mobile App
- * Optimized for continuous 5-player Americano tournaments up to 15 points
+ * Padel Americano - Ranch Mobile App (v2.0)
+ * SQLite-backed multi-game management, 2-tap player swap & 5-round cycle
  */
 
-// Initial configuration
-const DEFAULT_PLAYERS = ['Simon', 'Tim', 'Adrian', 'Andre', 'Michael'];
-const STORAGE_KEY = 'alpaca_padel_v1';
-const TARGET_POINTS = 11;
+const ACTIVE_SESSION_KEY = 'alpaca_padel_active_session_id';
 
-// Tournament State
 let state = {
-  players: [...DEFAULT_PLAYERS],
-  rounds: [], // { id, roundNum, buzzPlayer, team1: [p1, p2], team2: [p3, p4], score1: 0, score2: 0, timestamp }
-  currentMatch: null, // { buzzPlayer, team1: [p1, p2], team2: [p3, p4], score1: 0, score2: 0 }
-  targetPoints: TARGET_POINTS,
-  migrated11: true
+  id: null,
+  title: '',
+  played_date: '',
+  location: '',
+  players: ['Simon', 'Tim', 'Adrian', 'Andre', 'Michael'],
+  rounds: [],
+  currentMatch: null,
+  targetPoints: 11,
+  status: 'active'
 };
 
-// Active 2-tap player swap selection: { group: 'team1' | 'team2' | 'buzz', index: number } | null
+let sessionsList = [];
+let overallStats = null;
+let leaderboardScope = 'session'; // 'session' | 'overall'
 let selectedSwapSlot = null;
 
-// Initialize App
-function initApp() {
-  loadState();
-  maybeLoadUrlPreset();
-  if (!state.currentMatch) {
-    state.currentMatch = generateNextMatch();
-    saveState();
+// -------------------------------------------------------------
+// API HELPERS
+// -------------------------------------------------------------
+async function apiFetch(url, options = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...options
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText);
+    throw new Error(errText || `HTTP ${res.status}`);
   }
+  return res.json();
+}
+
+function applySessionData(session) {
+  if (!session) return;
+  state = {
+    id: session.id,
+    title: session.title || '',
+    played_date: session.played_date || '',
+    location: session.location || '',
+    players: session.players || [],
+    rounds: session.rounds || [],
+    currentMatch: session.currentMatch || null,
+    targetPoints: session.targetPoints || 11,
+    status: session.status || 'active'
+  };
+  localStorage.setItem(ACTIVE_SESSION_KEY, state.id);
+}
+
+async function initApp() {
   setupDialogs();
   setupEventListeners();
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlSessionId = params.get('session');
+    const savedSessionId = localStorage.getItem(ACTIVE_SESSION_KEY);
+
+    const listData = await apiFetch('/api/sessions');
+    sessionsList = listData.sessions || [];
+
+    let targetId = urlSessionId || savedSessionId;
+    if (targetId && !sessionsList.some(s => s.id === targetId)) {
+      targetId = null;
+    }
+    if (!targetId && sessionsList.length > 0) {
+      targetId = sessionsList[0].id;
+    }
+
+    if (targetId) {
+      const data = await apiFetch(`/api/sessions/${encodeURIComponent(targetId)}`);
+      applySessionData(data.session);
+      if (urlSessionId) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } else {
+      const created = await apiFetch('/api/sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          played_date: new Date().toISOString().slice(0, 10),
+          location: 'Padel Court',
+          players: ['Simon', 'Tim', 'Adrian', 'Andre', 'Michael'],
+          target_points: 11
+        })
+      });
+      applySessionData(created.session);
+      sessionsList = (await apiFetch('/api/sessions')).sessions || [];
+    }
+
+    if (!state.currentMatch && state.players.length >= 4) {
+      state.currentMatch = generateNextMatch();
+      await persistSessionFields({ current_match: state.currentMatch });
+    }
+  } catch (err) {
+    console.error('Failed to load session from API:', err);
+  }
+
   renderAll();
 }
 
-function maybeLoadUrlPreset() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('load') !== 'r7') return;
-
-  const now = new Date().toISOString();
-  state.players = ['Simon', 'Tim', 'Adrian', 'Andre', 'Michael'];
-  state.targetPoints = 11;
-  state.migrated11 = true;
-  state.rounds = [
-    { id: 'round_1', roundNum: 1, buzzPlayer: 'Simon',   team1: ['Adrian', 'Tim'],    team2: ['Michael', 'Andre'], score1: 11, score2: 9, timestamp: now },
-    { id: 'round_2', roundNum: 2, buzzPlayer: 'Tim',     team1: ['Adrian', 'Michael'], team2: ['Andre', 'Simon'],  score1: 11, score2: 5, timestamp: now },
-    { id: 'round_3', roundNum: 3, buzzPlayer: 'Michael', team1: ['Adrian', 'Andre'],  team2: ['Tim', 'Simon'],    score1: 11, score2: 6, timestamp: now },
-    { id: 'round_4', roundNum: 4, buzzPlayer: 'Adrian',  team1: ['Michael', 'Simon'], team2: ['Tim', 'Andre'],    score1: 11, score2: 5, timestamp: now },
-    { id: 'round_5', roundNum: 5, buzzPlayer: 'Andre',   team1: ['Michael', 'Tim'],   team2: ['Adrian', 'Simon'], score1: 11, score2: 6, timestamp: now },
-    { id: 'round_6', roundNum: 6, buzzPlayer: 'Simon',   team1: ['Adrian', 'Tim'],    team2: ['Michael', 'Andre'], score1: 11, score2: 8, timestamp: now },
-    { id: 'round_7', roundNum: 7, buzzPlayer: 'Tim',     team1: ['Adrian', 'Michael'], team2: ['Andre', 'Simon'],  score1: 11, score2: 6, timestamp: now }
-  ];
-  state.currentMatch = generateNextMatch();
-  saveState();
-  window.history.replaceState({}, '', window.location.pathname);
-}
-
-// Storage helpers
-function loadState() {
+async function persistSessionFields(fields) {
+  if (!state.id) return;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.players) && parsed.players.length >= 4) {
-        state = parsed;
-        // Migration to 11 points requested by Michael (keeps all games/players intact)
-        if (!state.migrated11) {
-          state.targetPoints = 11;
-          state.migrated11 = true;
-          saveState();
-        }
-      }
-    }
-  } catch (e) {
-    console.error('Failed to parse state from localStorage', e);
+    const data = await apiFetch(`/api/sessions/${encodeURIComponent(state.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(fields)
+    });
+    applySessionData(data.session);
+  } catch (err) {
+    console.error('Failed to persist session fields:', err);
   }
 }
 
-function saveState() {
+async function refreshSessionsAndOverall() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error('Failed to save state to localStorage', e);
+    const [listData, statsData] = await Promise.all([
+      apiFetch('/api/sessions'),
+      apiFetch('/api/stats/overall')
+    ]);
+    sessionsList = listData.sessions || [];
+    overallStats = statsData;
+  } catch (err) {
+    console.error('Failed to refresh sessions/stats:', err);
   }
 }
 
 // -------------------------------------------------------------
-// AMERICANO FAIR PAIRING GENERATOR
+// AMERICANO FAIR PAIRING GENERATOR (WITH 5-ROUND CYCLE REPEAT)
 // -------------------------------------------------------------
 function generateNextMatch(customBuzz = null) {
   const players = state.players;
   if (players.length < 4) return null;
 
-  // Repeat exact 5-round cycle when 5 players are active and >= 5 rounds were played
   if (!customBuzz && players.length === 5 && state.rounds.length >= 5) {
     const template = state.rounds[state.rounds.length - 5];
-    const templatePlayers = [template.buzzPlayer, ...template.team1, ...template.team2];
-    const allStillPresent = templatePlayers.length === 5 && templatePlayers.every(p => players.includes(p));
-    if (allStillPresent) {
+    const tplPlayers = [template.buzzPlayer, ...template.team1, ...template.team2];
+    if (tplPlayers.length === 5 && tplPlayers.every(p => players.includes(p))) {
       return {
         buzzPlayer: template.buzzPlayer,
         team1: [...template.team1],
@@ -107,57 +151,55 @@ function generateNextMatch(customBuzz = null) {
     }
   }
 
-  // 1. Determine who rests (Buzz)
   let buzzPlayer = customBuzz;
   if (!buzzPlayer) {
-    const restCounts = {};
-    players.forEach(p => restCounts[p] = 0);
-    state.rounds.forEach(r => {
-      if (r.buzzPlayer && restCounts[r.buzzPlayer] !== undefined) {
-        restCounts[r.buzzPlayer]++;
-      }
-    });
-
-    // Find player with minimum rest count; tie-break by longest time since last rest
-    let minCount = Infinity;
-    let candidates = [];
-    players.forEach(p => {
-      if (restCounts[p] < minCount) {
-        minCount = restCounts[p];
-        candidates = [p];
-      } else if (restCounts[p] === minCount) {
-        candidates.push(p);
-      }
-    });
-
-    if (candidates.length === 1) {
-      buzzPlayer = candidates[0];
+    if (players.length === 4) {
+      buzzPlayer = '';
     } else {
-      // Pick candidate who rested longest ago
-      let bestCandidate = candidates[0];
-      let maxLastRestIndex = -1;
-      candidates.forEach(cand => {
-        let lastSeenRest = -1;
-        for (let i = state.rounds.length - 1; i >= 0; i--) {
-          if (state.rounds[i].buzzPlayer === cand) {
-            lastSeenRest = i;
-            break;
-          }
-        }
-        const roundsSinceRest = state.rounds.length - lastSeenRest;
-        if (roundsSinceRest > maxLastRestIndex) {
-          maxLastRestIndex = roundsSinceRest;
-          bestCandidate = cand;
+      const restCounts = {};
+      players.forEach(p => { restCounts[p] = 0; });
+      state.rounds.forEach(r => {
+        if (r.buzzPlayer && restCounts[r.buzzPlayer] !== undefined) {
+          restCounts[r.buzzPlayer]++;
         }
       });
-      buzzPlayer = bestCandidate;
+
+      let minCount = Infinity;
+      let candidates = [];
+      players.forEach(p => {
+        if (restCounts[p] < minCount) {
+          minCount = restCounts[p];
+          candidates = [p];
+        } else if (restCounts[p] === minCount) {
+          candidates.push(p);
+        }
+      });
+
+      if (candidates.length === 1) {
+        buzzPlayer = candidates[0];
+      } else {
+        let bestCandidate = candidates[0];
+        let maxLastRestIndex = -1;
+        candidates.forEach(cand => {
+          let lastSeenRest = -1;
+          for (let i = state.rounds.length - 1; i >= 0; i--) {
+            if (state.rounds[i].buzzPlayer === cand) {
+              lastSeenRest = i;
+              break;
+            }
+          }
+          const roundsSinceRest = state.rounds.length - lastSeenRest;
+          if (roundsSinceRest > maxLastRestIndex) {
+            maxLastRestIndex = roundsSinceRest;
+            bestCandidate = cand;
+          }
+        });
+        buzzPlayer = bestCandidate;
+      }
     }
   }
 
-  // 2. Active 4 players
   const activePlayers = players.filter(p => p !== buzzPlayer);
-
-  // If more than 4 players, pick the 4 with fewest games played
   const sortedByGames = [...activePlayers].sort((a, b) => {
     const aGames = state.rounds.filter(r => r.team1.includes(a) || r.team2.includes(a)).length;
     const bGames = state.rounds.filter(r => r.team1.includes(b) || r.team2.includes(b)).length;
@@ -165,21 +207,16 @@ function generateNextMatch(customBuzz = null) {
   });
   const four = sortedByGames.slice(0, 4);
 
-  // 3. Count historical partnerings and opposing matchups
   const partnerCount = {};
   const opponentCount = {};
-  function key(p1, p2) {
-    return [p1, p2].sort().join('::');
-  }
+  const key = (p1, p2) => [p1, p2].sort().join('::');
 
   state.rounds.forEach(r => {
-    // Partners
     const t1k = key(r.team1[0], r.team1[1]);
     const t2k = key(r.team2[0], r.team2[1]);
     partnerCount[t1k] = (partnerCount[t1k] || 0) + 1;
     partnerCount[t2k] = (partnerCount[t2k] || 0) + 1;
 
-    // Opponents
     r.team1.forEach(p1 => {
       r.team2.forEach(p2 => {
         const oppk = key(p1, p2);
@@ -188,10 +225,6 @@ function generateNextMatch(customBuzz = null) {
     });
   });
 
-  // 3 possible pairings of the 4 players:
-  // Option 1: (0,1) vs (2,3)
-  // Option 2: (0,2) vs (1,3)
-  // Option 3: (0,3) vs (1,2)
   const options = [
     { t1: [four[0], four[1]], t2: [four[2], four[3]] },
     { t1: [four[0], four[2]], t2: [four[1], four[3]] },
@@ -202,17 +235,14 @@ function generateNextMatch(customBuzz = null) {
   let minPenalty = Infinity;
 
   options.forEach(opt => {
-    // Penalty heavily weights repeat partnerships, then repeat opponents
     const pPenalty = (partnerCount[key(opt.t1[0], opt.t1[1])] || 0) * 10 +
                      (partnerCount[key(opt.t2[0], opt.t2[1])] || 0) * 10;
-    
     let oppPenalty = 0;
     opt.t1.forEach(p1 => {
       opt.t2.forEach(p2 => {
         oppPenalty += (opponentCount[key(p1, p2)] || 0);
       });
     });
-
     const totalPenalty = pPenalty + oppPenalty;
     if (totalPenalty < minPenalty) {
       minPenalty = totalPenalty;
@@ -232,25 +262,15 @@ function generateNextMatch(customBuzz = null) {
 // -------------------------------------------------------------
 // LEADERBOARD CALCULATOR
 // -------------------------------------------------------------
-function calculateLeaderboard() {
+function calculateSessionLeaderboard() {
   const stats = {};
   state.players.forEach(name => {
-    stats[name] = {
-      name,
-      points: 0,
-      conceded: 0,
-      diff: 0,
-      played: 0,
-      wins: 0,
-      losses: 0,
-      avg: '0.0'
-    };
+    stats[name] = { name, points: 0, conceded: 0, diff: 0, played: 0, wins: 0, losses: 0, avg: '0.0' };
   });
 
   state.rounds.forEach(r => {
     const s1 = Number(r.score1) || 0;
     const s2 = Number(r.score2) || 0;
-
     r.team1.forEach(p => {
       if (stats[p]) {
         stats[p].points += s1;
@@ -260,7 +280,6 @@ function calculateLeaderboard() {
         else if (s2 > s1) stats[p].losses += 1;
       }
     });
-
     r.team2.forEach(p => {
       if (stats[p]) {
         stats[p].points += s2;
@@ -278,7 +297,6 @@ function calculateLeaderboard() {
     return s;
   });
 
-  // Sort: Points DESC, Diff DESC, Wins DESC, Name ASC
   list.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.diff !== a.diff) return b.diff - a.diff;
@@ -293,29 +311,43 @@ function calculateLeaderboard() {
 // RENDERING
 // -------------------------------------------------------------
 function renderAll() {
+  renderSessionBar();
   renderActiveMatch();
   renderLeaderboard();
   renderHistory();
+}
+
+function formatDateDE(isoDate) {
+  if (!isoDate || !isoDate.includes('-')) return isoDate || '--.--.----';
+  const [y, m, d] = isoDate.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+function renderSessionBar() {
+  const dateEl = document.getElementById('sessionDateBadge');
+  const locEl = document.getElementById('sessionLocationBadge');
+  const playersEl = document.getElementById('sessionPlayersBadge');
+  if (dateEl) dateEl.textContent = `📅 ${formatDateDE(state.played_date)}`;
+  if (locEl) locEl.textContent = `📍 ${state.location || 'Ohne Ort'}`;
+  if (playersEl) playersEl.textContent = `👥 ${state.players.length}`;
 }
 
 function renderActiveMatch() {
   const roundNum = state.rounds.length + 1;
   const roundTitle = document.getElementById('currentRoundTitle');
   if (roundTitle) roundTitle.textContent = `Runde ${roundNum}`;
-  
+
   const brandTarget = document.getElementById('brandTargetDisplay');
   if (brandTarget) brandTarget.textContent = state.targetPoints;
 
   const targetDisplay = document.getElementById('targetPointsDisplay');
   if (targetDisplay) targetDisplay.textContent = state.targetPoints;
 
-  // Update target pill buttons active state
   document.querySelectorAll('.target-pill-btn').forEach(btn => {
     const pts = parseInt(btn.getAttribute('data-pts'), 10);
     btn.classList.toggle('active', pts === state.targetPoints);
   });
 
-  // Update target win button labels
   document.querySelectorAll('.targetWinLabel').forEach(el => {
     el.textContent = state.targetPoints;
   });
@@ -323,18 +355,15 @@ function renderActiveMatch() {
   const match = state.currentMatch;
   if (!match) return;
 
-  // Buzz / Pause
   const buzzEl = document.getElementById('buzzPlayerName');
   if (buzzEl) {
     buzzEl.textContent = match.buzzPlayer || 'Keiner';
     buzzEl.classList.toggle('swap-selected', selectedSwapSlot?.group === 'buzz');
   }
 
-  // Team players (clickable to swap)
   renderTeamPlayers('team1Players', 'team1', match.team1);
   renderTeamPlayers('team2Players', 'team2', match.team2);
 
-  // Swap hint banner
   const hintBar = document.getElementById('swapHintBar');
   if (hintBar) {
     if (selectedSwapSlot) {
@@ -346,7 +375,6 @@ function renderActiveMatch() {
     }
   }
 
-  // Scores
   const t1Score = document.getElementById('t1Score');
   if (t1Score) t1Score.textContent = match.score1;
 
@@ -396,7 +424,7 @@ function setSwapSlotName(match, slot, name) {
   }
 }
 
-function handlePlayerSwapClick(group, index) {
+async function handlePlayerSwapClick(group, index) {
   const match = state.currentMatch;
   if (!match) return;
 
@@ -419,11 +447,13 @@ function handlePlayerSwapClick(group, index) {
   if (firstName && secondName) {
     setSwapSlotName(match, selectedSwapSlot, secondName);
     setSwapSlotName(match, targetSlot, firstName);
-    saveState();
+    selectedSwapSlot = null;
+    renderActiveMatch();
+    await persistSessionFields({ current_match: match });
+  } else {
+    selectedSwapSlot = null;
+    renderActiveMatch();
   }
-
-  selectedSwapSlot = null;
-  renderActiveMatch();
 }
 
 function renderPresets() {
@@ -452,7 +482,7 @@ function renderPresets() {
         state.currentMatch.score1 = t1;
         state.currentMatch.score2 = t2;
         renderActiveMatch();
-        saveState();
+        persistSessionFields({ current_match: state.currentMatch });
       }
     });
     container.appendChild(btn);
@@ -461,7 +491,19 @@ function renderPresets() {
 
 function renderLeaderboard() {
   const tbody = document.getElementById('leaderboardBody');
-  const lb = calculateLeaderboard();
+  const titleEl = document.getElementById('leaderboardTitle');
+  const subEl = document.getElementById('leaderboardSubtitle');
+
+  let lb = [];
+  if (leaderboardScope === 'overall' && overallStats) {
+    lb = overallStats.leaderboard || [];
+    if (titleEl) titleEl.textContent = '🏆 Gesamt-Tabelle';
+    if (subEl) subEl.textContent = `${overallStats.sessionsCount} Spieltage • ${overallStats.roundsCount} Runden`;
+  } else {
+    lb = calculateSessionLeaderboard();
+    if (titleEl) titleEl.textContent = '🏆 Spieltag-Tabelle';
+    if (subEl) subEl.textContent = `${formatDateDE(state.played_date)} • ${state.location || 'Padel'}`;
+  }
 
   tbody.innerHTML = '';
   lb.forEach((item, index) => {
@@ -509,7 +551,6 @@ function renderHistory() {
   }
 
   container.innerHTML = '';
-  // Show most recent rounds first
   const reversed = [...state.rounds].reverse();
 
   reversed.forEach(round => {
@@ -544,9 +585,8 @@ function renderHistory() {
 // EVENT HANDLERS & MATCH FLOW
 // -------------------------------------------------------------
 function setupEventListeners() {
-  // Navigation Tabs
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       document.querySelectorAll('.tab-btn').forEach(b => {
         b.classList.remove('active');
         b.setAttribute('aria-selected', 'false');
@@ -557,56 +597,71 @@ function setupEventListeners() {
       btn.setAttribute('aria-selected', 'true');
       const target = btn.getAttribute('data-tab');
       document.getElementById(target).classList.add('active');
+
+      if (target === 'tab-leaderboard' && leaderboardScope === 'overall') {
+        await refreshSessionsAndOverall();
+        renderLeaderboard();
+      }
     });
   });
 
-  // Score adjustments Team 1
+  document.querySelectorAll('.lb-scope-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      leaderboardScope = btn.getAttribute('data-scope') || 'session';
+      document.querySelectorAll('.lb-scope-btn').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-scope') === leaderboardScope);
+      });
+      if (leaderboardScope === 'overall') {
+        await refreshSessionsAndOverall();
+      }
+      renderLeaderboard();
+    });
+  });
+
   document.getElementById('t1Plus').addEventListener('click', () => {
     if (state.currentMatch) {
       state.currentMatch.score1++;
       renderActiveMatch();
-      saveState();
+      persistSessionFields({ current_match: state.currentMatch });
     }
   });
   document.getElementById('t1Minus').addEventListener('click', () => {
     if (state.currentMatch && state.currentMatch.score1 > 0) {
       state.currentMatch.score1--;
       renderActiveMatch();
-      saveState();
+      persistSessionFields({ current_match: state.currentMatch });
     }
   });
 
-  // Score adjustments Team 2
   document.getElementById('t2Plus').addEventListener('click', () => {
     if (state.currentMatch) {
       state.currentMatch.score2++;
       renderActiveMatch();
-      saveState();
+      persistSessionFields({ current_match: state.currentMatch });
     }
   });
   document.getElementById('t2Minus').addEventListener('click', () => {
     if (state.currentMatch && state.currentMatch.score2 > 0) {
       state.currentMatch.score2--;
       renderActiveMatch();
-      saveState();
+      persistSessionFields({ current_match: state.currentMatch });
     }
   });
 
-  // Target points switcher (11 / 15 / 21)
   document.querySelectorAll('.target-pill-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const pts = parseInt(btn.getAttribute('data-pts'), 10);
       if (pts) {
         state.targetPoints = pts;
-        saveState();
         renderActiveMatch();
+        persistSessionFields({ target_points: pts });
       }
     });
   });
 
-  // Quick win buttons
   document.querySelectorAll('.btn-quick-score').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (!state.currentMatch) return;
       const team = btn.getAttribute('data-team');
       if (team === '1') {
         state.currentMatch.score1 = state.targetPoints;
@@ -614,119 +669,265 @@ function setupEventListeners() {
         state.currentMatch.score2 = state.targetPoints;
       }
       renderActiveMatch();
-      saveState();
+      persistSessionFields({ current_match: state.currentMatch });
     });
   });
 
-  // Finish Round
-  document.getElementById('btnFinishRound').addEventListener('click', () => {
+  document.getElementById('btnFinishRound').addEventListener('click', async () => {
     const match = state.currentMatch;
-    if (!match) return;
+    if (!match || !state.id) return;
 
     if (match.score1 === 0 && match.score2 === 0) {
       alert('Bitte tragt zuerst den Punktestand für diese Runde ein!');
       return;
     }
 
-    const roundData = {
-      id: 'round_' + Date.now(),
-      roundNum: state.rounds.length + 1,
-      buzzPlayer: match.buzzPlayer,
-      team1: [...match.team1],
-      team2: [...match.team2],
-      score1: Number(match.score1),
-      score2: Number(match.score2),
-      timestamp: new Date().toISOString()
-    };
-
-    state.rounds.push(roundData);
-    // Generate next round automatically
     selectedSwapSlot = null;
-    state.currentMatch = generateNextMatch();
-    saveState();
-    renderAll();
-
-    // Haptic feedback if supported
-    if (navigator.vibrate) {
-      navigator.vibrate([40, 60, 40]);
+    try {
+      const data = await apiFetch(`/api/sessions/${encodeURIComponent(state.id)}/rounds`, {
+        method: 'POST',
+        body: JSON.stringify({
+          buzzPlayer: match.buzzPlayer || '',
+          team1: [...match.team1],
+          team2: [...match.team2],
+          score1: Number(match.score1),
+          score2: Number(match.score2)
+        })
+      });
+      applySessionData(data.session);
+      renderAll();
+      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+    } catch (err) {
+      alert('Fehler beim Speichern der Runde: ' + err.message);
     }
   });
 
-  // Swap Buzz Dialog trigger & Buzz player name tap-to-swap
   document.getElementById('btnSwapBuzz').addEventListener('click', openSwapBuzzDialog);
   document.getElementById('buzzPlayerName').addEventListener('click', () => handlePlayerSwapClick('buzz', 0));
 
-  // Manage Players Dialog
   document.getElementById('btnManagePlayers').addEventListener('click', openManagePlayersDialog);
   document.getElementById('btnAddPlayer').addEventListener('click', handleAddPlayer);
   document.getElementById('newPlayerInput').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleAddPlayer();
   });
 
-  // Reset Tournament Dialog
   document.getElementById('btnResetTournament').addEventListener('click', () => {
     document.getElementById('dlgResetConfirm').showModal();
   });
-  document.getElementById('btnConfirmReset').addEventListener('click', () => {
-    state.rounds = [];
+  document.getElementById('btnConfirmReset').addEventListener('click', async () => {
+    if (!state.id) return;
     selectedSwapSlot = null;
-    state.currentMatch = generateNextMatch();
-    saveState();
+    const data = await apiFetch(`/api/sessions/${encodeURIComponent(state.id)}/reset`, { method: 'POST' });
+    applySessionData(data.session);
     renderAll();
     document.getElementById('dlgResetConfirm').close();
   });
   document.getElementById('btnCancelReset').addEventListener('click', () => {
     document.getElementById('dlgResetConfirm').close();
   });
+
+  // Sessions & New Game
+  document.getElementById('btnOpenSessions').addEventListener('click', openSessionsDialog);
+  document.getElementById('btnNewSessionQuick').addEventListener('click', openNewSessionDialog);
+  document.getElementById('btnOpenNewSessionFromList').addEventListener('click', () => {
+    document.getElementById('dlgSessions').close();
+    openNewSessionDialog();
+  });
+  document.getElementById('btnCancelNewSession').addEventListener('click', () => {
+    document.getElementById('dlgNewSession').close();
+  });
+  document.getElementById('btnAddCustomSessionPlayer').addEventListener('click', handleAddCustomSessionPlayer);
+  document.getElementById('newSessionCustomPlayer').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddCustomSessionPlayer();
+    }
+  });
+  document.getElementById('newSessionForm').addEventListener('submit', handleCreateNewSession);
 }
 
 // -------------------------------------------------------------
-// DIALOG MANAGEMENT & MODERN WEB GUIDANCE COMPLIANCE
+// DIALOGS
 // -------------------------------------------------------------
 function setupDialogs() {
   const dialogs = [
     { dlg: document.getElementById('dlgPlayers'), closeBtn: document.getElementById('btnCloseDlgPlayers') },
     { dlg: document.getElementById('dlgSwapBuzz'), closeBtn: document.getElementById('btnCloseDlgBuzz') },
     { dlg: document.getElementById('dlgResetConfirm'), closeBtn: document.getElementById('btnCloseDlgReset') },
-    { dlg: document.getElementById('dlgEditRound'), closeBtn: document.getElementById('btnCloseDlgEditRound') }
+    { dlg: document.getElementById('dlgEditRound'), closeBtn: document.getElementById('btnCloseDlgEditRound') },
+    { dlg: document.getElementById('dlgSessions'), closeBtn: document.getElementById('btnCloseDlgSessions') },
+    { dlg: document.getElementById('dlgNewSession'), closeBtn: document.getElementById('btnCloseDlgNewSession') }
   ];
 
-  // Close buttons
   dialogs.forEach(({ dlg, closeBtn }) => {
     if (closeBtn && dlg) {
       closeBtn.addEventListener('click', () => dlg.close());
     }
   });
 
-  document.getElementById('btnSavePlayers').addEventListener('click', () => {
+  document.getElementById('btnSavePlayers').addEventListener('click', async () => {
     document.getElementById('dlgPlayers').close();
-    saveState();
+    await persistSessionFields({ players: state.players });
     renderAll();
   });
 
-  // Light-dismiss fallback for browsers without closedby support (Safari etc.)
   if (!('closedBy' in HTMLDialogElement.prototype)) {
     document.querySelectorAll('dialog[closedby="any"]').forEach(dialog => {
       dialog.addEventListener('click', (event) => {
         if (event.target !== dialog) return;
         const rect = dialog.getBoundingClientRect();
-        const isDialogContent = (
+        const isInside = (
           rect.top <= event.clientY &&
           event.clientY <= rect.top + rect.height &&
           rect.left <= event.clientX &&
           event.clientX <= rect.left + rect.width
         );
-        if (!isDialogContent) {
-          dialog.close();
-        }
+        if (!isInside) dialog.close();
       });
     });
   }
 }
 
-// Manage Players
+// Sessions Management Dialog
+async function openSessionsDialog() {
+  await refreshSessionsAndOverall();
+  const container = document.getElementById('sessionsList');
+  container.innerHTML = '';
+
+  if (sessionsList.length === 0) {
+    container.innerHTML = '<div class="empty-state">Noch keine Spieltage gespeichert.</div>';
+  } else {
+    sessionsList.forEach(s => {
+      const item = document.createElement('div');
+      item.className = `session-item ${s.id === state.id ? 'active' : ''}`;
+      const title = s.title ? `${escapeHtml(s.title)} • ` : '';
+      item.innerHTML = `
+        <div class="session-item-main">
+          <div class="session-item-title">${title}${formatDateDE(s.played_date)} — ${escapeHtml(s.location || 'Ohne Ort')}</div>
+          <div class="session-item-meta">${s.roundCount} Runden • ${escapeHtml((s.players || []).join(', '))}</div>
+        </div>
+        ${sessionsList.length > 1 ? `<button type="button" class="btn-subtle btn-sm" style="color: var(--danger);" data-del-id="${s.id}" title="Spieltag löschen">🗑️</button>` : ''}
+      `;
+      item.querySelector('.session-item-main').addEventListener('click', async () => {
+        selectedSwapSlot = null;
+        const data = await apiFetch(`/api/sessions/${encodeURIComponent(s.id)}`);
+        applySessionData(data.session);
+        renderAll();
+        document.getElementById('dlgSessions').close();
+      });
+      const delBtn = item.querySelector('[data-del-id]');
+      if (delBtn) {
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm(`Spieltag ${formatDateDE(s.played_date)} wirklich löschen?`)) return;
+          await apiFetch(`/api/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+          if (s.id === state.id) {
+            localStorage.removeItem(ACTIVE_SESSION_KEY);
+            await initApp();
+          }
+          await openSessionsDialog();
+        });
+      }
+      container.appendChild(item);
+    });
+  }
+
+  document.getElementById('dlgSessions').showModal();
+}
+
+// New Session Dialog
+let newSessionPlayerPool = [];
+let newSessionSelectedPlayers = new Set();
+
+async function openNewSessionDialog() {
+  await refreshSessionsAndOverall();
+  document.getElementById('newSessionDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('newSessionLocation').value = state.location || '';
+  document.getElementById('newSessionTitle').value = '';
+  document.getElementById('newSessionTarget').value = String(state.targetPoints || 11);
+
+  const locContainer = document.getElementById('knownLocationsChips');
+  locContainer.innerHTML = '';
+  (overallStats?.knownLocations || []).forEach(loc => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip-btn';
+    btn.textContent = `📍 ${loc}`;
+    btn.addEventListener('click', () => {
+      document.getElementById('newSessionLocation').value = loc;
+    });
+    locContainer.appendChild(btn);
+  });
+
+  const known = new Set([...(overallStats?.knownPlayers || []), ...state.players]);
+  newSessionPlayerPool = Array.from(known);
+  newSessionSelectedPlayers = new Set(state.players);
+  renderNewSessionPlayerChips();
+
+  document.getElementById('dlgNewSession').showModal();
+}
+
+function renderNewSessionPlayerChips() {
+  const container = document.getElementById('newSessionPlayersChips');
+  container.innerHTML = '';
+  newSessionPlayerPool.forEach(p => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `player-pick-chip ${newSessionSelectedPlayers.has(p) ? 'selected' : ''}`;
+    btn.textContent = p;
+    btn.addEventListener('click', () => {
+      if (newSessionSelectedPlayers.has(p)) {
+        newSessionSelectedPlayers.delete(p);
+      } else {
+        newSessionSelectedPlayers.add(p);
+      }
+      renderNewSessionPlayerChips();
+    });
+    container.appendChild(btn);
+  });
+}
+
+function handleAddCustomSessionPlayer() {
+  const input = document.getElementById('newSessionCustomPlayer');
+  const name = input.value.trim();
+  if (!name) return;
+  if (!newSessionPlayerPool.includes(name)) {
+    newSessionPlayerPool.push(name);
+  }
+  newSessionSelectedPlayers.add(name);
+  input.value = '';
+  renderNewSessionPlayerChips();
+}
+
+async function handleCreateNewSession(e) {
+  e.preventDefault();
+  const players = Array.from(newSessionSelectedPlayers);
+  if (players.length < 4) {
+    alert('Bitte mindestens 4 Mitspieler auswählen!');
+    return;
+  }
+  const played_date = document.getElementById('newSessionDate').value;
+  const location = document.getElementById('newSessionLocation').value.trim();
+  const title = document.getElementById('newSessionTitle').value.trim();
+  const target_points = parseInt(document.getElementById('newSessionTarget').value, 10) || 11;
+
+  try {
+    selectedSwapSlot = null;
+    const data = await apiFetch('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ played_date, location, title, target_points, players })
+    });
+    applySessionData(data.session);
+    sessionsList = (await apiFetch('/api/sessions')).sessions || [];
+    renderAll();
+    document.getElementById('dlgNewSession').close();
+  } catch (err) {
+    alert('Fehler beim Erstellen des Spiels: ' + err.message);
+  }
+}
+
+// Manage Players (current session)
 function openManagePlayersDialog() {
-  const list = document.getElementById('playersList');
   renderPlayersList();
   document.getElementById('dlgPlayers').showModal();
 }
@@ -745,7 +946,7 @@ function renderPlayersList() {
   });
 
   list.querySelectorAll('.btn-delete-player').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', () => {
       const idx = parseInt(btn.getAttribute('data-idx'), 10);
       if (state.players.length <= 4) {
         alert('Mindestens 4 Spieler sind erforderlich für Americano Doppel!');
@@ -783,11 +984,11 @@ function openSwapBuzzDialog() {
       <span>☕ ${escapeHtml(p)}</span>
       <span style="font-size: 0.8rem; color: var(--text-muted);">${isCurrent ? 'Aktiv pausierend' : 'Jetzt Pause'}</span>
     `;
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       selectedSwapSlot = null;
       state.currentMatch = generateNextMatch(p);
-      saveState();
       renderActiveMatch();
+      await persistSessionFields({ current_match: state.currentMatch });
       document.getElementById('dlgSwapBuzz').close();
     });
     container.appendChild(btn);
@@ -826,17 +1027,19 @@ window.openEditRoundDialog = function(roundId) {
   document.getElementById('dlgEditRound').showModal();
 };
 
-document.getElementById('btnSaveEditRound').addEventListener('click', () => {
-  if (!activeEditRoundId) return;
-  const round = state.rounds.find(r => r.id === activeEditRoundId);
-  if (round) {
-    const s1 = parseInt(document.getElementById('editT1Score').value, 10);
-    const s2 = parseInt(document.getElementById('editT2Score').value, 10);
-    round.score1 = isNaN(s1) ? 0 : s1;
-    round.score2 = isNaN(s2) ? 0 : s2;
-    saveState();
-    renderAll();
-  }
+document.getElementById('btnSaveEditRound').addEventListener('click', async () => {
+  if (!activeEditRoundId || !state.id) return;
+  const s1 = parseInt(document.getElementById('editT1Score').value, 10);
+  const s2 = parseInt(document.getElementById('editT2Score').value, 10);
+  const data = await apiFetch(
+    `/api/sessions/${encodeURIComponent(state.id)}/rounds/${encodeURIComponent(activeEditRoundId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ score1: isNaN(s1) ? 0 : s1, score2: isNaN(s2) ? 0 : s2 })
+    }
+  );
+  applySessionData(data.session);
+  renderAll();
   document.getElementById('dlgEditRound').close();
 });
 
@@ -844,13 +1047,14 @@ document.getElementById('btnCancelEditRound').addEventListener('click', () => {
   document.getElementById('dlgEditRound').close();
 });
 
-// Delete Round
-window.deleteRound = function(roundId) {
+window.deleteRound = async function(roundId) {
+  if (!state.id) return;
   if (confirm('Möchtest du diese Runde wirklich aus der Wertung löschen?')) {
-    state.rounds = state.rounds.filter(r => r.id !== roundId);
-    // Renumber rounds
-    state.rounds.forEach((r, idx) => r.roundNum = idx + 1);
-    saveState();
+    const data = await apiFetch(
+      `/api/sessions/${encodeURIComponent(state.id)}/rounds/${encodeURIComponent(roundId)}`,
+      { method: 'DELETE' }
+    );
+    applySessionData(data.session);
     renderAll();
   }
 };
@@ -866,7 +1070,6 @@ function escapeHtml(str) {
   })[m]);
 }
 
-// Start
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);
 } else {

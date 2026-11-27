@@ -1,10 +1,17 @@
-FROM nginx:alpine
+FROM python:3.12-slim
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY index.html /usr/share/nginx/html/index.html
-COPY styles.css /usr/share/nginx/html/styles.css
-COPY app.js /usr/share/nginx/html/app.js
+WORKDIR /app
 
-EXPOSE 80
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["nginx", "-g", "daemon off;"]
+COPY db.py server.py index.html styles.css app.js ./
+
+RUN mkdir -p /app/data
+
+ENV PADEL_DB_PATH=/app/data/padel.db
+ENV PORT=8000
+
+EXPOSE 8000
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
